@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 import threading
@@ -175,15 +176,19 @@ class MemoryStore:
             raise ValidationError("content empty")
         if kind not in {"semantic", "procedural", "episodic"}:
             raise ValidationError(f"invalid kind {kind}")
-        # clamp importance/reward
+        # clamp importance/reward + reject NaN/Inf
         try:
             importance_f = float(importance)
         except Exception:
             raise ValidationError("importance must be numeric") from None
+        if math.isnan(importance_f) or math.isinf(importance_f):
+            raise ValidationError("importance must be finite [0,1]")
         try:
             reward_f = float(reward)
         except Exception:
             raise ValidationError("reward must be numeric") from None
+        if math.isnan(reward_f) or math.isinf(reward_f):
+            raise ValidationError("reward must be finite [0,1]")
         # ensure session exists if provided (FK)
         if session_id:
             self.create_session(session_id)
@@ -250,6 +255,9 @@ class MemoryStore:
                 imp = float(imp_val)  # type: ignore[arg-type]
             except Exception:
                 imp = 0.5
+            if math.isnan(imp) or math.isinf(imp):
+                imp = 0.5
+            imp = max(0.0, min(1.0, imp))
             # dedup: skip if near-duplicate exists
             with self._lock:
                 dup = self._conn.execute(
@@ -265,6 +273,11 @@ class MemoryStore:
                 importance=imp,
             )
             created.append(m)
+            # cap consolidator DoS: max 10 per consolidation + respect max_memories
+            if len(created) >= 10:
+                break
+            if self.stats()["memories"] >= self.config.max_memories:
+                break
         return created
 
     def recall(
@@ -335,19 +348,25 @@ class MemoryStore:
                 if not memories and session:
                     raise sqlite3.OperationalError("no fts hits for session filter")
             except sqlite3.OperationalError:
-                like_q = f"%{query.strip()}%"
-                with self._lock:
-                    if session:
-                        rows2 = self._conn.execute(
-                            "SELECT * FROM memories WHERE (summary LIKE ? OR content LIKE ?) AND (session_id IS NULL OR session_id = ?) ORDER BY score DESC LIMIT ?",
-                            (like_q, like_q, session, limit),
-                        ).fetchall()
-                    else:
-                        rows2 = self._conn.execute(
-                            "SELECT * FROM memories WHERE summary LIKE ? OR content LIKE ? ORDER BY score DESC LIMIT ?",
-                            (like_q, like_q, limit),
-                        ).fetchall()
-                memories = [self._row_to_memory(r) for r in rows2]
+                # LIKE fallback with guard for pattern too complex / huge query
+                q_stripped = query.strip()
+                # truncate for LIKE to avoid "too complex" on 100kb queries
+                like_q = f"%{q_stripped[:200]}%"
+                try:
+                    with self._lock:
+                        if session:
+                            rows2 = self._conn.execute(
+                                "SELECT * FROM memories WHERE (summary LIKE ? OR content LIKE ?) AND (session_id IS NULL OR session_id = ?) ORDER BY score DESC LIMIT ?",
+                                (like_q, like_q, session, limit),
+                            ).fetchall()
+                        else:
+                            rows2 = self._conn.execute(
+                                "SELECT * FROM memories WHERE summary LIKE ? OR content LIKE ? ORDER BY score DESC LIMIT ?",
+                                (like_q, like_q, limit),
+                            ).fetchall()
+                    memories = [self._row_to_memory(r) for r in rows2]
+                except sqlite3.OperationalError:
+                    memories = []
                 if not memories:
                     with self._lock:
                         if session:
@@ -444,6 +463,8 @@ class MemoryStore:
             reward_f = float(reward)
         except Exception:
             raise ValidationError("reward must be numeric") from None
+        if math.isnan(reward_f) or math.isinf(reward_f):
+            raise ValidationError("reward must be finite")
         new_reward = max(0.0, min(1.0, reward_f))
         new_score = composite_score(
             row["importance"],
@@ -467,7 +488,7 @@ class MemoryStore:
             return self._row_to_memory(row2)
 
     def prune(self, keep: int | None = None) -> int:
-        """Delete lowest-scored memories beyond keep limit. Returns deleted count."""
+        """Delete lowest-scored memories beyond keep limit. Returns deleted count. Batches for sqlite MAX_VARIABLE_NUMBER."""
         cap = keep if keep is not None else self.config.max_memories
         if cap < 0:
             raise ValidationError("keep must be >=0")
@@ -480,10 +501,15 @@ class MemoryStore:
                 "SELECT id FROM memories ORDER BY score ASC LIMIT ?", (to_delete,)
             ).fetchall()
             ids = [r["id"] for r in rows]
-            if ids:
-                qmarks = ",".join("?" for _ in ids)
-                self._conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", ids)
-            return len(ids)
+            # batch to avoid sqlite "too many SQL variables" (default 999)
+            batch_size = 900
+            total = 0
+            for i in range(0, len(ids), batch_size):
+                chunk = ids[i : i + batch_size]
+                qmarks = ",".join("?" for _ in chunk)
+                self._conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", chunk)
+                total += len(chunk)
+            return total
 
     def stats(self) -> dict[str, int]:
         with self._lock:
@@ -493,6 +519,169 @@ class MemoryStore:
                 "memories": self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0],
                 "tool_calls": self._conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0],
             }
+
+    # ---- 5 killer dev-exp extras ----
+
+    def health_check(self) -> dict[str, object]:
+        """Deep health: integrity, WAL, FTS, sizes. Zero-dependency."""
+        with self._lock:
+            integ = self._conn.execute("PRAGMA integrity_check").fetchone()[0]
+            wal = self._conn.execute("PRAGMA journal_mode").fetchone()[0]
+            page_cnt = self._conn.execute("PRAGMA page_count").fetchone()[0]
+            page_sz = self._conn.execute("PRAGMA page_size").fetchone()[0]
+            fts_ok = True
+            try:
+                self._conn.execute("SELECT * FROM memories_fts LIMIT 1")
+            except sqlite3.OperationalError:
+                fts_ok = False
+            db_size = page_cnt * page_sz if page_cnt and page_sz else 0
+            wal_path = self.path + "-wal" if self.path != ":memory:" else ""
+            wal_size = 0
+            try:
+                if wal_path and Path(wal_path).exists():
+                    wal_size = Path(wal_path).stat().st_size
+            except Exception:
+                pass
+            return {
+                "integrity": integ,
+                "integrity_ok": integ == "ok",
+                "journal_mode": wal,
+                "db_size_bytes": db_size,
+                "wal_size_bytes": wal_size,
+                "fts_ok": fts_ok,
+                "stats": self.stats(),
+            }
+
+    def vacuum(self) -> None:
+        """Reclaim space + optimize FTS. Safe to call hot."""
+        with self._lock:
+            try:
+                self._conn.execute("VACUUM")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                self._conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('optimize')")
+            except sqlite3.OperationalError:
+                pass
+
+    def backup(self, dest: str | Path) -> None:
+        """Online backup via sqlite3 backup API (hot, not blocking)."""
+        dest = str(dest)
+        with self._lock:
+            dst = sqlite3.connect(dest)
+            try:
+                self._conn.backup(dst)
+            finally:
+                dst.close()
+
+    def export_json(self, dest: str | Path) -> dict[str, int]:
+        """Dump to JSON file. Returns counts. Inspector-friendly."""
+        dest = Path(dest)
+        data: dict[str, list[dict[str, object]]] = {
+            "sessions": [],
+            "turns": [],
+            "memories": [],
+            "tool_calls": [],
+        }
+        with self._lock:
+            for row in self._conn.execute("SELECT * FROM sessions").fetchall():
+                data["sessions"].append(dict(row))
+            for row in self._conn.execute("SELECT * FROM turns").fetchall():
+                data["turns"].append(dict(row))
+            for row in self._conn.execute("SELECT * FROM memories").fetchall():
+                data["memories"].append(dict(row))
+            for row in self._conn.execute("SELECT * FROM tool_calls").fetchall():
+                data["tool_calls"].append(dict(row))
+        # json can't handle bytes for embedding, base64? skip
+        for m in data["memories"]:
+            if m.get("embedding") is not None:
+                m["embedding"] = None
+        dest.write_text(json.dumps(data, indent=2))
+        return {k: len(v) for k, v in data.items()}
+
+    def import_json(self, src: str | Path) -> dict[str, int]:
+        """Restore from export_json. Idempotent for sessions, append for others."""
+        src_p = Path(src)
+        data = json.loads(src_p.read_text())
+        counts = {"sessions": 0, "turns": 0, "memories": 0, "tool_calls": 0}
+        with self._lock:
+            for s in data.get("sessions", []):
+                try:
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO sessions(id, meta_json, created_at) VALUES (?,?,?)",
+                        (s["id"], s.get("meta_json"), s["created_at"]),
+                    )
+                    counts["sessions"] += 1
+                except Exception:
+                    pass
+            for t in data.get("turns", []):
+                try:
+                    self._conn.execute(
+                        "INSERT INTO turns(id, session_id, role, content, tokens, ts) VALUES (?,?,?,?,?,?)",
+                        (t["id"], t["session_id"], t["role"], t["content"], t["tokens"], t["ts"]),
+                    )
+                    counts["turns"] += 1
+                except Exception:
+                    pass
+            for m in data.get("memories", []):
+                try:
+                    self._conn.execute(
+                        "INSERT INTO memories(id, kind, session_id, content, summary, importance, access_count, reward, score, created_at, last_accessed) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            m["id"],
+                            m["kind"],
+                            m.get("session_id"),
+                            m["content"],
+                            m["summary"],
+                            m["importance"],
+                            m["access_count"],
+                            m["reward"],
+                            m["score"],
+                            m["created_at"],
+                            m["last_accessed"],
+                        ),
+                    )
+                    counts["memories"] += 1
+                except Exception:
+                    pass
+            for tc in data.get("tool_calls", []):
+                try:
+                    self._conn.execute(
+                        "INSERT INTO tool_calls(id, turn_id, name, args_json, result_json, success, ts) VALUES (?,?,?,?,?,?,?)",
+                        (
+                            tc["id"],
+                            tc["turn_id"],
+                            tc["name"],
+                            tc.get("args_json"),
+                            tc.get("result_json"),
+                            tc.get("success"),
+                            tc["ts"],
+                        ),
+                    )
+                    counts["tool_calls"] += 1
+                except Exception:
+                    pass
+        return counts
+
+    def explain_recall(
+        self, query: str, session: str | None = None, limit: int = 5
+    ) -> dict[str, object]:
+        """Debug helper: shows FTS vs LIKE path, scores, timings."""
+        t0 = time.time()
+        res = self.recall(query, session=session, limit=limit)
+        dt = (time.time() - t0) * 1000
+        return {
+            "query": query,
+            "session": session,
+            "took_ms": round(dt, 2),
+            "returned": len(res.memories),
+            "memories": [
+                {"id": m.id, "kind": m.kind, "score": round(m.score, 3), "summary": m.summary[:80]}
+                for m in res.memories
+            ],
+            "stm_count": len(res.stm),
+            "prompt_chars": len(res.prompt),
+        }
 
     def close(self) -> None:
         with self._lock:

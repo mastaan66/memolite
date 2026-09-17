@@ -53,6 +53,24 @@ class AsyncMemoryStore:
     async def stats(self) -> dict[str, int]:
         return await self._run(self._store.stats)  # type: ignore[no-any-return]
 
+    async def health_check(self, *a: Any, **kw: Any) -> Any:
+        return await self._run(self._store.health_check, *a, **kw)
+
+    async def vacuum(self, *a: Any, **kw: Any) -> Any:
+        return await self._run(self._store.vacuum, *a, **kw)
+
+    async def backup(self, *a: Any, **kw: Any) -> Any:
+        return await self._run(self._store.backup, *a, **kw)
+
+    async def export_json(self, *a: Any, **kw: Any) -> Any:
+        return await self._run(self._store.export_json, *a, **kw)
+
+    async def import_json(self, *a: Any, **kw: Any) -> Any:
+        return await self._run(self._store.import_json, *a, **kw)
+
+    async def explain_recall(self, *a: Any, **kw: Any) -> Any:
+        return await self._run(self._store.explain_recall, *a, **kw)
+
     async def close(self) -> None:
         await self._run(self._store.close)
 

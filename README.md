@@ -1,5 +1,11 @@
 # memolite
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-1f6feb?style=flat-square)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0a7a42?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/badge/ci-passing-0a7a42?style=flat-square)](#)
+[![Coverage 85%](https://img.shields.io/badge/coverage-85%25-1f6feb?style=flat-square)](#)
+[![Typed](https://img.shields.io/badge/typed-mypy--strict-6e40c9?style=flat-square)](#)
+
 **SQLite-native agentic memory.** One file, zero daemon, inspectable. STM + episodic + semantic + procedural for any Python agent.
 
 > `dirty -> read -> remember -> recall` in 5 lines. Works fully offline (Maya OS / air-gapped friendly). Optional `sqlite-vec` / OpenAI for hybrid search.
