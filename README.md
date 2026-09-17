@@ -48,7 +48,9 @@ store.remember("SHUCHI = USB sanitiser kiosk for Maya OS", kind="semantic", impo
 
 # 3. Tool trace -> procedural memory
 t = store.add_turn(session="s1", role="assistant", content="I'll scan the USB")
-store.add_tool_call(t.id, name="clamav_scan", args={"path": "/mnt/usb"}, result={"infected": False}, success=True)
+store.add_tool_call(
+    t.id, name="clamav_scan", args={"path": "/mnt/usb"}, result={"infected": False}, success=True
+)
 
 # 4. Recall - fuses BM25 + recency + importance + access_count
 res = store.recall("what project am I on?", session="s1", limit=3)

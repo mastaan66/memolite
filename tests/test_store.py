@@ -34,7 +34,7 @@ def test_tool_call_creates_procedural() -> None:
 def test_feedback_and_prune() -> None:
     store = MemoryStore(":memory:", Config(auto_consolidate_every=0, max_memories=2))
     m1 = store.remember("a", importance=0.1)
-    m2 = store.remember("b", importance=0.9)
+    _m2 = store.remember("b", importance=0.9)
     store.remember("c", importance=0.5)
     store.feedback(m1.id, reward=0.0)
     deleted = store.prune(keep=2)

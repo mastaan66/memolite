@@ -19,8 +19,9 @@ def recency_factor(
 
 
 def frequency_factor(access_count: int) -> float:
-    """Log-normalized frequency in [0,1)."""
-    return math.log1p(access_count) / (math.log1p(access_count) + 1.5)
+    """Log-normalized frequency in [0,1). Negative counts treated as 0."""
+    c = max(0, access_count)
+    return math.log1p(c) / (math.log1p(c) + 1.5)
 
 
 def composite_score(

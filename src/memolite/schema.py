@@ -1,8 +1,6 @@
 """SQLite schema."""
 
 SCHEMA_SQL = """
-PRAGMA journal_mode=WAL;
-
 CREATE TABLE IF NOT EXISTS sessions(
   id TEXT PRIMARY KEY,
   meta_json TEXT,
