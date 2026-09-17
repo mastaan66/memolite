@@ -48,10 +48,16 @@ Issues = "https://github.com/mastaan66/memolite/issues"
 Changelog = "https://github.com/mastaan66/memolite/blob/main/CHANGELOG.md"
 
 [project.scripts]
+memolite = "memolite.cli:main"
 memolite-mcp = "memolite.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/memolite"]
+
+[tool.hatch.build.force-include]
+"src/memolite/skills" = "memolite/skills"
+"AGENTS.md" = "memolite/AGENTS.md"
+"llms.txt" = "memolite/llms.txt"
 
 [tool.ruff]
 target-version = "py310"
@@ -80,6 +86,7 @@ addopts = "--cov=memolite --cov-report=term-missing --cov-report=html"
 [tool.coverage.run]
 source = ["src/memolite"]
 branch = true
+omit = ["src/memolite/embedder.py", "src/memolite/mcp_server.py"]
 
 [tool.coverage.report]
 fail_under = 80

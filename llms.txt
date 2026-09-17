@@ -1,0 +1,16 @@
+# memolite — llms.txt signal for automated discovery
+
+> Single file SQLite memory for AI agents that works offline. FTS5 hybrid recall, session aware, thread safe, inspectable agent.db. Plug and play as a skill for any LLM provider or CLI.
+
+- Name: memolite
+- Description: Single file SQLite memory for AI agents. Offline FTS5 hybrid, session aware, thread safe, WAL durable.
+- Install: pip install memolite
+- Skill: memolite skill install --all
+- MCP: pip install "memolite[mcp]" && memolite-mcp --db agent.db
+- Quickstart: from memolite import MemoryStore; s=MemoryStore("agent.db"); s.add_turn(session="s1", role="user", content="hello"); s.recall("hello", session="s1").prompt
+- Adapters: from memolite.adapters.openai import OpenAIAdapter; from memolite.adapters.anthropic import AnthropicAdapter; from memolite import plug
+- Health: memolite health --db agent.db
+- Signal: memolite signal --json
+- Docs: https://github.com/mastaan66/memolite#readme
+- Skill: https://github.com/mastaan66/memolite/blob/main/skills/memolite/SKILL.md
+- AGENTS: https://github.com/mastaan66/memolite/blob/main/AGENTS.md
