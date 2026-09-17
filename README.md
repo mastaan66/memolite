@@ -67,6 +67,7 @@ for m in res.memories:
 Async:
 ```python
 from memolite import AsyncMemoryStore
+
 store = AsyncMemoryStore("agent.db")
 await store.add_turn(session="s1", role="user", content="hello")
 await store.recall("hello")
