@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "memolite"
 version = "0.1.0"
-description = "SQLite-native agentic memory for AI agents — STM, episodic, semantic, FTS5 + vector, usage-driven consolidation."
+description = "Single file SQLite memory for AI agents. Offline FTS5 hybrid, session aware, thread safe, WAL durable."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
