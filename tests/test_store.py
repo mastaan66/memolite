@@ -14,19 +14,23 @@ def test_add_turn_and_recall() -> None:
 
 def test_consolidate_heuristic() -> None:
     store = MemoryStore(":memory:", Config(auto_consolidate_every=2))
-    store.add_turn(session="s1", role="user", content="Remember I work on SHUCHI kiosk")
+    store.add_turn(
+        session="s1", role="user", content="Remember I prefer concise Python with type hints"
+    )
     store.add_turn(session="s1", role="user", content="another turn")
     # should have auto-consolidated
-    res = store.recall("SHUCHI", session="s1", limit=5)
-    assert any("SHUCHI" in m.content for m in res.memories)
+    res = store.recall("Python", session="s1", limit=5)
+    assert any("Python" in m.content for m in res.memories)
     store.close()
 
 
 def test_tool_call_creates_procedural() -> None:
     store = MemoryStore(":memory:", Config(auto_consolidate_every=0))
-    t = store.add_turn(session="s1", role="assistant", content="scanning")
-    store.add_tool_call(t.id, name="clamav", args={"p": "/usb"}, result={"ok": True}, success=True)
-    res = store.recall("clamav", limit=5)
+    t = store.add_turn(session="s1", role="assistant", content="fetching docs")
+    store.add_tool_call(
+        t.id, name="doc_search", args={"q": "type hints"}, result={"ok": True}, success=True
+    )
+    res = store.recall("doc_search", limit=5)
     assert any(m.kind == "procedural" for m in res.memories)
     store.close()
 

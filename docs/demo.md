@@ -9,7 +9,7 @@ from memolite import MemoryStore
 
 store = MemoryStore("agent.db")
 store.add_turn(session="s1", role="user", content="Remember I prefer Python, no classes")
-store.add_turn(session="s1", role="user", content="SHUCHI is a Maya OS kiosk")
+store.add_turn(session="s1", role="user", content="I prefer concise code with type hints")
 
 # hybrid recall: FTS5 + recency + frequency
 result = store.recall("python preference", session="s1", limit=3)
