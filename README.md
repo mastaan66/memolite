@@ -33,10 +33,11 @@ store.close()
 ## Install
 
 ```bash
-pip install memolite                    # core: FTS5 + heuristic
+pip install memolite                    # core: FTS5 + heuristic, no server, works with any LLM
 pip install "memolite[local]"          # + sentence-transformers local vectors
 pip install "memolite[openai]"         # + openai embeddings
 pip install "memolite[vec]"            # + sqlite-vec extension
+pip install "memolite[mcp]"            # + MCP server for Claude Desktop and Cursor
 ```
 
 ## Quickstart
@@ -76,6 +77,91 @@ await store.recall("hello")
 await store.close()
 ```
 
+## Plug and Play with any LLM
+
+One install, zero server. Store is the same file for every provider. No separate deployment.
+
+**Any LLM via prompt injection - no tools needed:**
+
+```python
+from memolite import MemoryStore
+
+store = MemoryStore("agent.db")
+store.add_turn(session="s1", role="user", content="I prefer concise Python")
+
+from memolite import plug
+
+adapter = plug(store, llm="generic")  # or openai, claude, deepseek
+prompt = adapter.inject("how should I write code?", session_id="s1")
+# inject prompt into any LLM call
+# openai: client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
+# claude: client.messages.create(model="claude-3-5-sonnet", messages=[{"role": "user", "content": prompt}])
+# deepseek: same as openai
+```
+
+**ChatGPT, OpenAI, DeepSeek - tool calling:**
+
+```python
+from memolite import MemoryStore
+from memolite.adapters.openai import OpenAIAdapter
+
+store = MemoryStore("agent.db")
+adapter = OpenAIAdapter(store)  # DeepSeekAdapter identical, OpenAI compatible
+
+# pass to API
+response = client.chat.completions.create(
+    model="gpt-4o",  # or deepseek-chat
+    messages=[{"role": "user", "content": "Remember I use Neovim"}],
+    tools=adapter.tools,
+)
+# on tool call
+if response.choices[0].message.tool_calls:
+    outputs = adapter.handle_tool_calls(
+        [c.model_dump() for c in response.choices[0].message.tool_calls]
+    )
+```
+
+**Claude - tool_use:**
+
+```python
+from memolite.adapters.anthropic import AnthropicAdapter
+
+store = MemoryStore("agent.db")
+adapter = AnthropicAdapter(store)
+
+response = client.messages.create(
+    model="claude-3-5-sonnet-20240620",
+    messages=[{"role": "user", "content": "what do you remember?"}],
+    tools=adapter.tools,
+)
+if response.content and response.content[0].type == "tool_use":
+    results = adapter.handle_tool_use(
+        [c.model_dump() for c in response.content if c.type == "tool_use"]
+    )
+```
+
+**Claude Desktop and Cursor via MCP - no code:**
+
+```bash
+pip install "memolite[mcp]"
+memolite-mcp --db agent.db
+```
+
+Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "memolite": {
+      "command": "memolite-mcp",
+      "args": ["--db", "/path/to/agent.db"]
+    }
+  }
+}
+```
+
+Tools exposed: `remember`, `recall`, `health`. Same file works for ChatGPT, Claude, DeepSeek, and any local model.
+
 ## How usage-driven memory works
 
 * Every `add_turn` stores episodic.
@@ -110,8 +196,8 @@ Run locally: `pytest --cov --cov-fail-under=80`, `ruff check src tests`, `mypy s
 ## Roadmap
 
 - [x] P1 core: STM, episodic, FTS5, heuristic consolidator, scoring, health check, backup, export and import
-- [ ] P2 vector hybrid (sqlite-vec), OpenAI and local embedders
-- [ ] P3 decay and adapters (LangGraph, CrewAI, OpenAI)
+- [x] P2 plug and play: OpenAI, DeepSeek, Claude adapters, MCP server, generic prompt injection
+- [ ] P3 vector hybrid (sqlite-vec) and LangGraph and CrewAI adapters
 
 ## Contributing
 
