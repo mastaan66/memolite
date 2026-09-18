@@ -361,8 +361,22 @@ check `src/memolite/security.py:PII_PATTERNS`.
 
 Vector hybrid v1 (no new deps): every `remember` stores a hash-trick embedding;
 `recall` reranks FTS candidates with cosine (`hybrid_score = 0.6*FTS + 0.4*vec`).
-Bring SOTA with `Config(embedder=my_fn, embedding_dim=N)`; `backfill_embeddings()`
-fills old rows. Honest limit: rerank only, not full ANN — swap in sqlite-vec later.
+LLMs as embedders (one line each):
+
+```python
+from memolite import MemoryStore, Config, openai_embedder, local_embedder, ollama_embedder
+
+store = MemoryStore("agent.db", Config(
+    embedder=openai_embedder(client),   # OpenAI / DeepSeek, best quality, needs network
+    # embedder=local_embedder(),        # sentence-transformers, offline after download
+    # embedder=ollama_embedder(),       # local Ollama, offline after pull
+    embedding_dim=1536,
+))
+store.backfill_embeddings()  # re-embed old rows with the LLM
+```
+
+Honest limit: rerank only, not full ANN — swap in sqlite-vec later. LLM embeddings
+should lift the paraphrase suite (0.2 now); re-run `examples/07_eval_recall.py` to prove it.
 
 File sync for small fleets (kiosk A <-> B via file drop):
 
