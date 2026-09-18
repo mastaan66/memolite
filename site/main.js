@@ -3,7 +3,7 @@
   var lines = [
     { t: "$ pip install memolite", c: "p" },
     { t: "$ memolite autoinstall --db agent.db", c: "p" },
-    { t: "installed agent.db — every Python here now remembers.", c: "c" },
+    { t: "installed agent.db - every Python here now remembers.", c: "c" },
     { t: "$ python -c \"from memolite import MemoryStore; s=MemoryStore('agent.db'); print(s.recall('deploy').prompt)\"", c: "p" },
     { t: "# Long-term memories\n- [semantic] Deploy key rotates every Friday", c: "c" }
   ];

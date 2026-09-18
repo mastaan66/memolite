@@ -53,7 +53,7 @@
 <section class="hero">
   <p class="kicker">Single-file memory for AI agents</p>
   <h1>Your agent forgets everything.<br>Fix it with <span class="hl">one file.</span></h1>
-  <p class="sub">memolite is <code>agent.db</code> — offline SQLite memory shared by GPT, Claude, DeepSeek and local models at the same time. No server. No API key. Auditable with one command.</p>
+  <p class="sub">memolite is <code>agent.db</code> - offline SQLite memory shared by GPT, Claude, DeepSeek and local models at the same time. No server. No API key. Auditable with one command.</p>
   <div class="cta-row">
     <a class="btn" href="https://github.com/mastaan66/memolite">Get it on GitHub</a>
     <a class="btn ghost" href="#install">pip install memolite</a>
@@ -95,7 +95,7 @@
         <text x="420" y="200" font-size="18" fill="#e63946" transform="rotate(3 420 200)">verified!</text>
       </g>
     </svg>
-    <figcaption class="hand">three providers, one brain — proven with 4 processes x 101 writes, zero loss</figcaption>
+    <figcaption class="hand">three providers, one brain - proven with 4 processes x 101 writes, zero loss</figcaption>
   </figure>
 </section>
 
@@ -119,7 +119,7 @@
     </div>
     <div class="card sketch-card">
       <h3>Vector DBs</h3>
-      <p>Docker, embeddings pipeline, ops work — to remember 10k facts like "user prefers Python".</p>
+      <p>Docker, embeddings pipeline, ops work - to remember 10k facts like "user prefers Python".</p>
       <p class="hand red">overkill for facts</p>
     </div>
     <div class="card sketch-card">
@@ -146,17 +146,17 @@ $ memolite autoinstall --db agent.db
 $ MEMOLITE_OFF=1 python app.py  # kill-switch</code><button class="copy" data-copy="auto">copy</button></pre>
       <pre class="code"><code># LLMs as embedders, one line each
 Config(embedder=openai_embedder(client))
-# or local_embedder() / ollama_embedder() — offline</code><button class="copy" data-copy="emb">copy</button></pre>
+# or local_embedder() / ollama_embedder() - offline</code><button class="copy" data-copy="emb">copy</button></pre>
     </div>
     <div>
       <ul class="ticks">
-        <li><strong>Shared brain</strong> — GPT writes a fact, Claude recalls it verbatim. Sessions isolate, global is shared.</li>
-        <li><strong>Hardened</strong> — AES-256-GCM at rest, PII redacted pre-write, SHA256 WORM chain + <code>verify</code>, per-session readers/writers, 0600 perms.</li>
-        <li><strong>Hybrid recall</strong> — FTS5 + vector rerank. Bring SOTA embeddings or use the zero-dep baseline.</li>
-        <li><strong>Fleet sync</strong> — <code>memolite sync a.db b.db</code> merges nodes with last-write-wins.</li>
-        <li><strong>Honest evals</strong> — keyword recall@3 0.6, paraphrase 0.2 with stdlib embed. Harness ships in repo.</li>
+        <li><strong>Shared brain</strong> - GPT writes a fact, Claude recalls it verbatim. Sessions isolate, global is shared.</li>
+        <li><strong>Hardened</strong> - AES-256-GCM at rest, PII redacted pre-write, SHA256 WORM chain + <code>verify</code>, per-session readers/writers, 0600 perms.</li>
+        <li><strong>Hybrid recall</strong> - FTS5 + vector rerank. Bring SOTA embeddings or use the zero-dep baseline.</li>
+        <li><strong>Fleet sync</strong> - <code>memolite sync a.db b.db</code> merges nodes with last-write-wins.</li>
+        <li><strong>Honest evals</strong> - keyword recall@3 0.6, paraphrase 0.2 with stdlib embed. Harness ships in repo.</li>
       </ul>
-      <p class="hand">no daemon, no spyware — fail-open, memory errors never break your LLM call</p>
+      <p class="hand">no daemon, no spyware - fail-open, memory errors never break your LLM call</p>
     </div>
   </div>
 </section>
@@ -171,7 +171,7 @@ Config(embedder=openai_embedder(client))
     <div class="stat sketch-card"><span class="num">101/101</span><span>concurrent writes, 0 lost</span></div>
     <div class="stat sketch-card"><span class="num">66</span><span>tests, mypy strict</span></div>
   </div>
-  <p class="center muted">First WORM chain <em>forked</em> under the 4-process test — fixed with atomic transactions, test kept. The scar is in the git log.</p>
+  <p class="center muted">First WORM chain <em>forked</em> under the 4-process test - fixed with atomic transactions, test kept. The scar is in the git log.</p>
 </section>
 
 <!-- COMPARE -->
@@ -199,7 +199,7 @@ memolite autoinstall --db agent.db</code><button class="copy" data-copy="install
     <a class="btn" href="https://github.com/mastaan66/memolite">Star on GitHub</a>
     <a class="btn ghost" href="https://github.com/mastaan66/memolite#scale---hybrid-vectors-file-sync-evals">Read the evals</a>
   </div>
-  <p class="hand">built by @mastaan66 — tell me what you'd break first</p>
+  <p class="hand">built by @mastaan66 - tell me what you'd break first</p>
 </section>
 </main>
 
