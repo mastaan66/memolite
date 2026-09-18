@@ -161,23 +161,40 @@ class MemoryStore:
         safe = self._redact(content)
         stored = self._enc(safe)
         toks = tokens if tokens is not None else max(0, len(safe) // 4)
+        # Cross-process atomic turn+chain: BEGIN IMMEDIATE serializes writers.
+        # Threading RLock alone cannot stop two processes reading the same prev hash.
         with self._lock:
-            cur = self._conn.execute(
-                "INSERT INTO turns(session_id, role, content, tokens, ts) VALUES (?,?,?,?,?)",
-                (session, role, stored, toks, now),
-            )
-            turn_id = cur.lastrowid or 0
-            if self.config.worm_enabled:
-                prev_row = self._conn.execute(
-                    "SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1"
-                ).fetchone()
-                prev = str(prev_row["hash"]) if prev_row else "GENESIS"
-                h = chain_hash(prev, session, role, safe, now)
-                self._conn.execute(
-                    "INSERT INTO audit_log(session_id, turn_id, prev_hash, hash, ts)"
-                    " VALUES (?,?,?,?,?)",
-                    (session, turn_id, prev, h, now),
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError:
+                pass  # already in transaction; busy_timeout still applies
+            try:
+                cur = self._conn.execute(
+                    "INSERT INTO turns(session_id, role, content, tokens, ts) VALUES (?,?,?,?,?)",
+                    (session, role, stored, toks, now),
                 )
+                turn_id = cur.lastrowid or 0
+                if self.config.worm_enabled:
+                    prev_row = self._conn.execute(
+                        "SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    prev = str(prev_row["hash"]) if prev_row else "GENESIS"
+                    h = chain_hash(prev, session, role, safe, now)
+                    self._conn.execute(
+                        "INSERT INTO audit_log(session_id, turn_id, prev_hash, hash, ts)"
+                        " VALUES (?,?,?,?,?)",
+                        (session, turn_id, prev, h, now),
+                    )
+                try:
+                    self._conn.execute("COMMIT")
+                except sqlite3.OperationalError:
+                    pass
+            except Exception:
+                try:
+                    self._conn.execute("ROLLBACK")
+                except sqlite3.OperationalError:
+                    pass
+                raise
         turn = Turn(id=turn_id, session_id=session, role=role, content=safe, tokens=toks, ts=now)
         # auto-consolidate based on DB count (persistent, not in-memory)
         if self.config.auto_consolidate_every:
