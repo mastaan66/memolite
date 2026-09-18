@@ -153,7 +153,7 @@ Config(embedder=openai_embedder(client))
         <li><strong>Shared brain</strong> — GPT writes a fact, Claude recalls it verbatim. Sessions isolate, global is shared.</li>
         <li><strong>Hardened</strong> — AES-256-GCM at rest, PII redacted pre-write, SHA256 WORM chain + <code>verify</code>, per-session readers/writers, 0600 perms.</li>
         <li><strong>Hybrid recall</strong> — FTS5 + vector rerank. Bring SOTA embeddings or use the zero-dep baseline.</li>
-        <li><strong>Fleet sync</strong> — <code>memolite sync a.db b.db</code> merges kiosks with last-write-wins.</li>
+        <li><strong>Fleet sync</strong> — <code>memolite sync a.db b.db</code> merges nodes with last-write-wins.</li>
         <li><strong>Honest evals</strong> — keyword recall@3 0.6, paraphrase 0.2 with stdlib embed. Harness ships in repo.</li>
       </ul>
       <p class="hand">no daemon, no spyware — fail-open, memory errors never break your LLM call</p>

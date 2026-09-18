@@ -48,6 +48,6 @@ def test_adapter_chat():
 
     store = MemoryStore(":memory:")
     a = plug(store, llm="generic")
-    out = a.chat("s1", "I work on SHUCHI sanitiser", fake_llm)
+    out = a.chat("s1", "I work on Atlas scanner", fake_llm)
     assert "response" in out
     store.close()

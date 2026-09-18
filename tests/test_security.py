@@ -66,9 +66,9 @@ def test_acl_enforce():
 def test_encrypt_roundtrip(tmp_path, monkeypatch):
     pytest.importorskip("cryptography")
     monkeypatch.setenv("MEMOLITE_KEY", "test-passphrase-123")
-    enc = encrypt_str("hello shuchi", "MEMOLITE_KEY")
+    enc = encrypt_str("hello vault", "MEMOLITE_KEY")
     assert enc.startswith("ENC1:")
-    assert decrypt_str(enc, "MEMOLITE_KEY") == "hello shuchi"
+    assert decrypt_str(enc, "MEMOLITE_KEY") == "hello vault"
     db = str(tmp_path / "enc.db")
     store = MemoryStore(db, Config(require_encryption=True))
     store.add_turn(session="s1", role="user", content="my secret note")

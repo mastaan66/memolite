@@ -19,24 +19,24 @@ def test_hash_embed_deterministic():
 
 
 def test_hybrid_matches_fts_on_keywords():
-    facts = ["Maya OS kiosk mini-PC", "deploy key Friday", "db-1 host"]
+    facts = ["Ubuntu node mini-PC", "deploy key Friday", "db-1 host"]
     for hybrid in (False, True):
         s = MemoryStore(
             ":memory:", Config(hybrid_enabled=hybrid, hybrid_dim=32, auto_consolidate_every=0)
         )
         for f in facts:
             s.remember(f, importance=0.8)
-        r = s.recall("Maya kiosk", limit=3)
-        assert any("Maya" in m.summary for m in r.memories)
+        r = s.recall("Ubuntu node", limit=3)
+        assert any("Ubuntu" in m.summary for m in r.memories)
         s.close()
 
 
 def test_remember_embeds_and_backfills():
     s = MemoryStore(":memory:", Config(hybrid_enabled=True, hybrid_dim=32))
-    s.remember("Maya OS kiosk mini-PC")
+    s.remember("Ubuntu node mini-PC")
     n = s.backfill_embeddings()
     assert n >= 0
-    r = s.recall("Maya kiosk", limit=2)
+    r = s.recall("Ubuntu node", limit=2)
     assert len(r.memories) >= 1
     s.close()
 
