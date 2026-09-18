@@ -1,3 +1,4 @@
+import pytest
 """Hardening tests: redact, WORM, ACL, encryption, perms."""
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ def test_acl_enforce():
 
 
 def test_encrypt_roundtrip(tmp_path, monkeypatch):
+    pytest.importorskip("cryptography")
     monkeypatch.setenv("MEMOLITE_KEY", "test-passphrase-123")
     enc = encrypt_str("hello shuchi", "MEMOLITE_KEY")
     assert enc.startswith("ENC1:")
