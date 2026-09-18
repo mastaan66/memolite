@@ -126,7 +126,7 @@ def decrypt_str(token: str, env_var: str = "MEMOLITE_KEY") -> str:
     raw = _raw_key_from_env(env_var)
     key = hashlib.pbkdf2_hmac("sha256", raw, salt, 200_000, dklen=32)
     pt = AESGCM(key).decrypt(nonce, ct, None)
-    return pt.decode("utf-8")
+    return bytes(pt).decode("utf-8")
 
 
 def is_encrypted(token: str) -> bool:
