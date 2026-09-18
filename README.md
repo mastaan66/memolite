@@ -61,6 +61,21 @@ patch_openai(client, store, session="s1")  # one line. done.
 # same for Anthropic: patch_anthropic(client, store, session="s1")
 ```
 
+System-wide (every Python on this box, no code change):
+
+```bash
+memolite autoinstall --db agent.db --session default
+# every OpenAI/Anthropic client constructed afterwards auto-uses memory.
+memolite autostatus
+MEMOLITE_OFF=1 python app.py   # kill-switch for one run
+memolite autouninstall         # remove
+```
+
+Config: `MEMOLITE_DB`, `MEMOLITE_SESSION`, `MEMOLITE_ACTOR` env or
+`~/.config/memolite/auto.json`. Sync clients only in v1; `stream=True`
+calls get recall injected but are not stored. Fail-open: memory errors
+never break your LLM call.
+
 Manual `chat()` also available if you prefer explicit:
 
 ```python

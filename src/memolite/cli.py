@@ -155,6 +155,55 @@ def _signal(args: argparse.Namespace) -> int:
     return 0
 
 
+def _auto_install(args: argparse.Namespace) -> int:
+    import json as _j
+    import sysconfig
+
+    purelib = sysconfig.get_paths()["purelib"]
+    pth = Path(purelib) / "memolite.pth"
+    try:
+        pth.write_text("import memolite.autoload\n")
+    except OSError as e:
+        print(f"cannot write {pth}: {e}. Try with sudo or pipx env.", file=sys.stderr)
+        return 1
+    cfg_path = Path.home() / ".config" / "memolite" / "auto.json"
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(_j.dumps({"db": args.db, "session": args.session}, indent=2))
+    print(f"installed {pth}")
+    print(f"config {cfg_path}: db={args.db} session={args.session}")
+    print("disable anytime: MEMOLITE_OFF=1. remove: memolite autouninstall")
+    return 0
+
+
+def _auto_uninstall(args: argparse.Namespace) -> int:
+    import sysconfig
+
+    purelib = sysconfig.get_paths()["purelib"]
+    pth = Path(purelib) / "memolite.pth"
+    if pth.exists():
+        pth.unlink()
+        print(f"removed {pth}")
+    else:
+        print("not installed")
+    return 0
+
+
+def _auto_status(args: argparse.Namespace) -> int:
+    import sysconfig
+
+    purelib = sysconfig.get_paths()["purelib"]
+    pth = Path(purelib) / "memolite.pth"
+    print(f"pth: {pth} {'installed' if pth.exists() else 'not installed'}")
+    cfg_path = Path.home() / ".config" / "memolite" / "auto.json"
+    print(f"config: {cfg_path} {'exists' if cfg_path.exists() else 'missing'}")
+    if cfg_path.exists():
+        print(cfg_path.read_text())
+    import os as _os
+
+    print(f"kill-switch: MEMOLITE_OFF=1 disables (current={_os.environ.get('MEMOLITE_OFF', '')!r})")
+    return 0
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         prog="memolite",
@@ -199,6 +248,17 @@ def main() -> None:
     mcp.set_defaults(
         func=lambda a: __import__("memolite.mcp_server", fromlist=["run"]).run(a.db) or 0
     )
+
+    ai = sub.add_parser(
+        "autoinstall", help="Auto-patch every Python: all OpenAI/Anthropic calls use memory"
+    )
+    ai.add_argument("--db", default="agent.db")
+    ai.add_argument("--session", default="default")
+    ai.set_defaults(func=_auto_install)
+    au = sub.add_parser("autouninstall", help="Remove system-wide auto-patch")
+    au.set_defaults(func=_auto_uninstall)
+    ast = sub.add_parser("autostatus", help="Show auto-patch status")
+    ast.set_defaults(func=_auto_status)
 
     args = p.parse_args()
     raise SystemExit(args.func(args))
