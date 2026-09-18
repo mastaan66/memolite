@@ -79,11 +79,12 @@ CREATE TABLE IF NOT EXISTS audit_log(
 );
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id, id);
 
--- per-session RBAC: owner + readers JSON list
+-- per-session RBAC: owner + readers JSON list + writers JSON list
 CREATE TABLE IF NOT EXISTS session_acl(
   session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
   owner TEXT NOT NULL,
   readers_json TEXT,
+  writers_json TEXT,
   created_at INTEGER NOT NULL
 );
 """

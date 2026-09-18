@@ -62,6 +62,15 @@ class MemoryStore:
             self._conn.execute(f"PRAGMA {k}={v}")
         with self._lock:
             self._conn.executescript(SCHEMA_SQL)
+            # migrate old DBs: writers column added in P4
+            try:
+                cols = [
+                    r[1] for r in self._conn.execute("PRAGMA table_info(session_acl)").fetchall()
+                ]
+                if "writers_json" not in cols:
+                    self._conn.execute("ALTER TABLE session_acl ADD COLUMN writers_json TEXT")
+            except sqlite3.OperationalError:
+                pass
         if self.path != ":memory:":
             harden_file(self.path)
 
@@ -82,29 +91,61 @@ class MemoryStore:
 
     # ---- ACL ----
 
-    def grant(self, session_id: str, owner: str, readers: list[str] | None = None) -> None:
-        """Set owner + readers for a session. Creates session if missing."""
+    def grant(
+        self,
+        session_id: str,
+        owner: str,
+        readers: list[str] | None = None,
+        writers: list[str] | None = None,
+    ) -> None:
+        """Set owner + readers + writers for a session. Creates session if missing."""
         import time as _t
 
         self.create_session(session_id)
         readers_json = json.dumps(readers or [])
+        writers_json = json.dumps(writers if writers is not None else (readers or []))
         now = int(_t.time())
         with self._lock:
-            self._conn.execute(
-                "INSERT INTO session_acl(session_id, owner, readers_json, created_at)"
-                " VALUES (?,?,?,?)"
-                " ON CONFLICT(session_id) DO UPDATE SET owner=?, readers_json=?",
-                (session_id, owner, readers_json, now, owner, readers_json),
-            )
+            try:
+                self._conn.execute(
+                    "INSERT INTO session_acl(session_id, owner, readers_json, writers_json,"
+                    " created_at) VALUES (?,?,?,?,?)"
+                    " ON CONFLICT(session_id) DO UPDATE SET owner=?, readers_json=?,"
+                    " writers_json=?",
+                    (
+                        session_id,
+                        owner,
+                        readers_json,
+                        writers_json,
+                        now,
+                        owner,
+                        readers_json,
+                        writers_json,
+                    ),
+                )
+            except sqlite3.OperationalError:
+                # old schema without writers_json
+                self._conn.execute(
+                    "INSERT INTO session_acl(session_id, owner, readers_json, created_at)"
+                    " VALUES (?,?,?,?)"
+                    " ON CONFLICT(session_id) DO UPDATE SET owner=?, readers_json=?",
+                    (session_id, owner, readers_json, now, owner, readers_json),
+                )
 
-    def _check_acl(self, session_id: str | None, actor: str | None) -> None:
+    def _check_acl(self, session_id: str | None, actor: str | None, mode: str = "write") -> None:
         if not self.config.require_acl or not session_id:
             return
         with self._lock:
-            row = self._conn.execute(
-                "SELECT owner, readers_json FROM session_acl WHERE session_id=?",
-                (session_id,),
-            ).fetchone()
+            try:
+                row = self._conn.execute(
+                    "SELECT owner, readers_json, writers_json FROM session_acl WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                row = self._conn.execute(
+                    "SELECT owner, readers_json FROM session_acl WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()
         if not row:
             # first writer becomes owner
             if actor:
@@ -113,13 +154,27 @@ class MemoryStore:
             raise ValidationError("acl: unknown session, actor required")
         import json as _j
 
-        readers: list[str] = []
-        try:
-            readers = _j.loads(row["readers_json"] or "[]")
-        except Exception:
-            readers = []
-        if actor is None or (actor != row["owner"] and actor not in readers):
+        def _load(key: str) -> list[str]:
+            try:
+                keys = list(row.keys())
+                v = row[key] if key in keys else None
+                loaded: list[str] = _j.loads(v or "[]")
+                return loaded
+            except Exception:
+                return []
+
+        readers = _load("readers_json")
+        writers = _load("writers_json") or readers  # backward compat: readers could write
+        if actor is None:
             raise ValidationError("acl: access denied")
+        if actor == row["owner"]:
+            return
+        if mode == "read":
+            if actor not in readers and actor not in writers:
+                raise ValidationError("acl: access denied")
+        else:
+            if actor not in writers:
+                raise ValidationError("acl: access denied")
 
     # ---- sessions / turns ----
 
@@ -334,9 +389,109 @@ class MemoryStore:
                 ),
             )
             mid = cur.lastrowid or 0
+            # hybrid embedding (best-effort, fail-open; embeds safe plaintext)
+            try:
+                if self.config.hybrid_enabled:
+                    from memolite.vec import hash_embed, pack
+
+                    dim = self.config.embedding_dim or self.config.hybrid_dim
+                    if self.config.embedder is not None:
+                        vecs = self.config.embedder([safe_content + " " + safe_summary])
+                    else:
+                        vecs = hash_embed([safe_content + " " + safe_summary], dim)
+                    if vecs:
+                        self._conn.execute(
+                            "UPDATE memories SET embedding=?, need_embed=0 WHERE id=?",
+                            (pack(vecs[0]), mid),
+                        )
+            except Exception:
+                try:
+                    self._conn.execute("UPDATE memories SET need_embed=1 WHERE id=?", (mid,))
+                except Exception:
+                    pass
             row = self._conn.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
             assert row is not None
             return self._row_to_memory(row)
+
+    def backfill_embeddings(self, limit: int = 1000) -> int:
+        """Compute missing embeddings. Returns count filled."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id FROM memories WHERE embedding IS NULL OR need_embed=1 LIMIT ?",
+                (limit,),
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+        n = 0
+        for mid in ids:
+            try:
+                with self._lock:
+                    row = self._conn.execute(
+                        "SELECT content, summary FROM memories WHERE id=?", (mid,)
+                    ).fetchone()
+                if not row:
+                    continue
+                text = self._dec(str(row["content"])) + " " + self._dec(str(row["summary"]))
+                from memolite.vec import hash_embed, pack
+
+                dim = self.config.embedding_dim or self.config.hybrid_dim
+                if self.config.embedder is not None:
+                    vecs = self.config.embedder([text])
+                else:
+                    vecs = hash_embed([text], dim)
+                if vecs:
+                    with self._lock:
+                        self._conn.execute(
+                            "UPDATE memories SET embedding=?, need_embed=0 WHERE id=?",
+                            (pack(vecs[0]), mid),
+                        )
+                    n += 1
+            except Exception:
+                continue
+        return n
+
+    def _vec_rerank(self, query: str, scored: list[tuple[float, Any]]) -> list[tuple[float, Any]]:
+        """Cosine rerank over FTS candidates. Fail-open to input order."""
+        try:
+            if not self.config.hybrid_enabled or not scored:
+                return scored
+            from memolite.vec import cosine, hash_embed, hybrid_score, unpack
+
+            dim = self.config.embedding_dim or self.config.hybrid_dim
+            if self.config.embedder is not None:
+                qv = self.config.embedder([query])[0]
+            else:
+                qv = hash_embed([query], dim)[0]
+            ids = [m.id for _, m in scored]
+            qmarks = ",".join("?" for _ in ids)
+            with self._lock:
+                rows = self._conn.execute(
+                    f"SELECT id, embedding FROM memories WHERE id IN ({qmarks})", ids
+                ).fetchall()
+            emb = {}
+            for r in rows:
+                if r["embedding"] is not None:
+                    try:
+                        emb[r["id"]] = unpack(bytes(r["embedding"]))
+                    except Exception:
+                        continue
+            if not emb:
+                return scored
+            out = []
+            for fused, m in scored:
+                v = emb.get(m.id)
+                sim = cosine(qv, v) if v is not None else 0.0
+                out.append(
+                    (
+                        hybrid_score(
+                            fused, sim, self.config.hybrid_w_fts, self.config.hybrid_w_vec
+                        ),
+                        m,
+                    )
+                )
+            out.sort(key=lambda x: x[0], reverse=True)
+            return out
+        except Exception:
+            return scored
 
     def consolidate(self, session: str) -> list[Memory]:
         """Distill recent turns into semantic memories. Returns new memories."""
@@ -418,7 +573,7 @@ class MemoryStore:
         if limit <= 0:
             raise ValidationError("limit must be >0")
         if session:
-            self._check_acl(session, actor)
+            self._check_acl(session, actor, mode="read")
         stm_n = stm_limit if stm_limit is not None else self.config.stm_window
         stm: list[Turn] = []
         if session:
@@ -500,6 +655,7 @@ class MemoryStore:
                     fused = mem.score * 0.7 + rec * 0.3 - (r["rank"] * 0.05)
                     scored.append((fused, mem))
                 scored.sort(key=lambda x: x[0], reverse=True)
+                scored = self._vec_rerank(query, scored)
                 memories = [m for _, m in scored[:limit]]
                 # if session filter gave 0 but global fallback should try
                 if not memories and session:

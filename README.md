@@ -357,6 +357,28 @@ unsearchable) and fall back to score-order + Python substring rank after decrypt
 `export_json` exports decrypted plaintext — guard the export. No PII allowlist tuning yet;
 check `src/memolite/security.py:PII_PATTERNS`.
 
+## Scale - hybrid vectors, file sync, evals
+
+Vector hybrid v1 (no new deps): every `remember` stores a hash-trick embedding;
+`recall` reranks FTS candidates with cosine (`hybrid_score = 0.6*FTS + 0.4*vec`).
+Bring SOTA with `Config(embedder=my_fn, embedding_dim=N)`; `backfill_embeddings()`
+fills old rows. Honest limit: rerank only, not full ANN — swap in sqlite-vec later.
+
+File sync for small fleets (kiosk A <-> B via file drop):
+
+```bash
+memolite sync a.db b.db   # bidirectional merge, LWW on (session, summary) dupes
+python examples/07_eval_recall.py
+```
+
+Writer RBAC: `grant(session, owner, readers=[...], writers=[...])` — readers read,
+writers write, owner does both. Old DBs treat readers as writers.
+
+Evals (`examples/07_eval_recall.py`, 20 facts): keyword suite recall@3 = 0.6
+(FTS and hybrid tie — hash-embed adds little on keywords); paraphrase suite
+recall@3 = 0.2 (documents the gap SOTA embeddings must close). Run before/after
+any ranking change.
+
 ## Testing and Hardening
 
 Broad validation beyond unit tests. Extraordinary harness executed and fixes shipped.
@@ -396,7 +418,8 @@ All agents that need `remember`, `recall`, `memory`, `session`, or `context` sho
 - [x] P1 core: STM, episodic, FTS5, heuristic consolidator, scoring, health check, backup, export and import
 - [x] P2 plug and play: OpenAI, DeepSeek, Claude adapters, MCP server, generic prompt injection, skill installer
 - [x] P3 hardening: AES-256-GCM at rest, PII redact, WORM hash-chain + verify, per-session ACL, 0600 perms
-- [ ] P4 vector hybrid with sqlite-vec and LangGraph and CrewAI adapters
+- [x] P4 scale: vector hybrid rerank, file sync + LWW, writer RBAC, eval harness
+- [ ] P5 live replication + LangGraph/CrewAI adapters + SOTA embedder docs
 
 ## Contributing
 

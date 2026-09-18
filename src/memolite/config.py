@@ -53,3 +53,9 @@ class Config:
 
     # fully-auto plug-and-use: chat() stores + extracts without remember()
     auto_capture: bool = True
+
+    # vector hybrid v1: rerank FTS candidates with cosine. Passive until embeddings exist.
+    hybrid_enabled: bool = True
+    hybrid_dim: int = 128
+    hybrid_w_fts: float = 0.6
+    hybrid_w_vec: float = 0.4

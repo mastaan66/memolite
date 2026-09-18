@@ -260,6 +260,21 @@ def main() -> None:
     ast = sub.add_parser("autostatus", help="Show auto-patch status")
     ast.set_defaults(func=_auto_status)
 
+    sy = sub.add_parser("sync", help="Bidirectional file merge of two agent DBs (LWW)")
+    sy.add_argument("a", help="First DB path")
+    sy.add_argument("b", help="Second DB path")
+    sy.set_defaults(
+        func=lambda args: (
+            print(
+                __import__("json").dumps(
+                    __import__("memolite.sync", fromlist=["sync_files"]).sync_files(args.a, args.b),
+                    indent=2,
+                )
+            )
+            or 0
+        )
+    )
+
     args = p.parse_args()
     raise SystemExit(args.func(args))
 

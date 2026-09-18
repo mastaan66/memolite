@@ -10,6 +10,8 @@ from memolite.models import Memory, RecallResult, Session, ToolCall, Turn
 from memolite.patch import patch_anthropic, patch_openai, unpatch_anthropic, unpatch_openai
 from memolite.security import decrypt_str, encrypt_str, redact_pii
 from memolite.store import MemoryStore
+from memolite.sync import export_bundle, import_bundle, sync_files
+from memolite.vec import cosine, hash_embed
 
 
 def plug(
@@ -38,12 +40,17 @@ __all__ = [
     "ToolCall",
     "Turn",
     "auto_chat",
+    "cosine",
     "decrypt_str",
     "encrypt_str",
+    "export_bundle",
+    "hash_embed",
+    "import_bundle",
     "patch_anthropic",
     "patch_openai",
     "plug",
     "redact_pii",
+    "sync_files",
     "unpatch_anthropic",
     "unpatch_openai",
 ]
