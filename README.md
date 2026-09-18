@@ -337,15 +337,19 @@ Opt-in, stdlib-first, zero new hard deps. Encryption needs `pip install memolite
 
 ```python
 import os
+
 os.environ["MEMOLITE_KEY"] = "base64-or-hex-or-passphrase"
 from memolite import MemoryStore, Config
 
-store = MemoryStore("agent.db", Config(
-    require_encryption=True,  # AES-256-GCM on turns+memories, raw DB has no plaintext
-    redact_pii=True,          # emails/phones/Aadhaar/cards/keys -> [REDACTED_*] on write
-    require_acl=True,         # per-session owner+readers, actor enforced
-    worm_enabled=True,        # SHA256 hash-chain per turn (default on)
-))
+store = MemoryStore(
+    "agent.db",
+    Config(
+        require_encryption=True,  # AES-256-GCM on turns+memories, raw DB has no plaintext
+        redact_pii=True,  # emails/phones/Aadhaar/cards/keys -> [REDACTED_*] on write
+        require_acl=True,  # per-session owner+readers, actor enforced
+        worm_enabled=True,  # SHA256 hash-chain per turn (default on)
+    ),
+)
 store.add_turn(session="proj", role="user", content="my mail is a@b.com", actor="alice")
 store.grant("proj", owner="alice", readers=["bob"])
 store.recall("mail", session="proj", actor="bob")
@@ -366,12 +370,15 @@ LLMs as embedders (one line each):
 ```python
 from memolite import MemoryStore, Config, openai_embedder, local_embedder, ollama_embedder
 
-store = MemoryStore("agent.db", Config(
-    embedder=openai_embedder(client),   # OpenAI / DeepSeek, best quality, needs network
-    # embedder=local_embedder(),        # sentence-transformers, offline after download
-    # embedder=ollama_embedder(),       # local Ollama, offline after pull
-    embedding_dim=1536,
-))
+store = MemoryStore(
+    "agent.db",
+    Config(
+        embedder=openai_embedder(client),  # OpenAI / DeepSeek, best quality, needs network
+        # embedder=local_embedder(),        # sentence-transformers, offline after download
+        # embedder=ollama_embedder(),       # local Ollama, offline after pull
+        embedding_dim=1536,
+    ),
+)
 store.backfill_embeddings()  # re-embed old rows with the LLM
 ```
 

@@ -165,26 +165,29 @@ def test_llm_embedder_plumbs_through():
 
 
 def test_embedder_variants():
-    import io
     import urllib.request as _u
+
     from memolite.embedders import local_embedder, ollama_embedder
 
     try:
         local_embedder()
-        raised = False
     except ImportError:
-        raised = True
-    assert raised or True  # passes either way; covers error branch when lib missing
+        pass  # covers error branch when lib missing
 
     class FakeResp:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self): return b'{"embedding": [0.5, 0.5]}'
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"embedding": [0.5, 0.5]}'
 
     orig = _u.urlopen
     _u.urlopen = lambda *a, **k: FakeResp()
     try:
-        vecs = ollama_embedder(model="m", url="http://x")( ["hi"] )
+        vecs = ollama_embedder(model="m", url="http://x")(["hi"])
         assert vecs == [[0.5, 0.5]]
     finally:
         _u.urlopen = orig
