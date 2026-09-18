@@ -6,8 +6,8 @@ from memolite.adapters.openai import DeepSeekAdapter, OpenAIAdapter
 from memolite.async_store import AsyncMemoryStore
 from memolite.auto import auto_chat
 from memolite.config import Config
-from memolite.patch import patch_anthropic, patch_openai, unpatch_anthropic, unpatch_openai
 from memolite.models import Memory, RecallResult, Session, ToolCall, Turn
+from memolite.patch import patch_anthropic, patch_openai, unpatch_anthropic, unpatch_openai
 from memolite.security import decrypt_str, encrypt_str, redact_pii
 from memolite.store import MemoryStore
 
