@@ -1,9 +1,10 @@
-import pytest
 """Hardening tests: redact, WORM, ACL, encryption, perms."""
 
 from __future__ import annotations
 
 import os
+
+import pytest
 
 from memolite import Config, MemoryStore
 from memolite.security import decrypt_str, encrypt_str, redact_pii
