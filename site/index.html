@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>memolite — one file for agent memory</title>
+<meta name="description" content="Single SQLite file for AI agent memory. Offline, shared across every LLM provider, auditable. No server, no API key.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Caveat:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="roughen">
+      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="3" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.5"/>
+    </filter>
+    <filter id="roughen-sm">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="1.4"/>
+    </filter>
+  </defs>
+</svg>
+
+<header class="nav">
+  <a class="brand" href="#">
+    <svg class="brand-mark" viewBox="0 0 48 48" width="30" height="30">
+      <g filter="url(#roughen-sm)" fill="none" stroke="#1a1a2e" stroke-width="2.5">
+        <rect x="8" y="12" width="32" height="26" rx="3"/>
+        <line x1="8" y1="19" x2="40" y2="19"/>
+        <circle cx="12.5" cy="15.5" r="1.2" fill="#e63946" stroke="none"/>
+        <line x1="15" y1="27" x2="33" y2="27"/>
+        <line x1="15" y1="32" x2="28" y2="32"/>
+      </g>
+    </svg>
+    <span>memolite</span>
+  </a>
+  <nav>
+    <a href="#why">Why</a>
+    <a href="#how">How</a>
+    <a href="#proof">Proof</a>
+    <a href="#install">Install</a>
+    <a class="btn-small" href="https://github.com/mastaan66/memolite">GitHub ★</a>
+  </nav>
+</header>
+
+<main>
+<!-- HERO -->
+<section class="hero">
+  <p class="kicker">Single-file memory for AI agents</p>
+  <h1>Your agent forgets everything.<br>Fix it with <span class="hl">one file.</span></h1>
+  <p class="sub">memolite is <code>agent.db</code> — offline SQLite memory shared by GPT, Claude, DeepSeek and local models at the same time. No server. No API key. Auditable with one command.</p>
+  <div class="cta-row">
+    <a class="btn" href="https://github.com/mastaan66/memolite">Get it on GitHub</a>
+    <a class="btn ghost" href="#install">pip install memolite</a>
+  </div>
+  <div class="badges">
+    <span>MIT</span><span>Python 3.10+</span><span>66 tests</span><span>mypy strict</span><span>offline</span>
+  </div>
+
+  <!-- hand-drawn shared brain sketch -->
+  <figure class="sketch-wrap">
+    <svg class="sketch" viewBox="0 0 640 260" role="img" aria-label="Three agents sharing one agent.db file">
+      <g filter="url(#roughen)" font-family="Caveat, cursive" font-size="21" fill="#1a1a2e">
+        <!-- agents -->
+        <g fill="none" stroke="#1a1a2e" stroke-width="2.5">
+          <rect x="20" y="60" width="130" height="70" rx="10"/>
+          <rect x="490" y="60" width="130" height="70" rx="10"/>
+          <rect x="20" y="160" width="130" height="70" rx="10"/>
+          <rect x="255" y="150" width="130" height="90" rx="10" stroke="#e63946" stroke-width="3"/>
+        </g>
+        <text x="42" y="90">GPT</text>
+        <text x="512" y="90">Claude</text>
+        <text x="42" y="190">local</text>
+        <text x="272" y="182" fill="#e63946">agent.db</text>
+        <text x="262" y="208" font-size="16" fill="#555">one file,</text>
+        <text x="262" y="228" font-size="16" fill="#555">same brain</text>
+        <!-- arrows -->
+        <g fill="none" stroke="#e63946" stroke-width="2.5" stroke-linecap="round">
+          <path d="M150 85 C 200 80, 220 140, 252 165"/>
+          <path d="M150 95 C 195 95, 215 150, 250 170" opacity="0"/>
+          <path d="M490 85 C 440 80, 420 140, 388 165"/>
+          <path d="M150 195 C 200 200, 220 200, 252 200"/>
+        </g>
+        <g fill="#e63946">
+          <path d="M252 165 l-9 -3 l4 9 z"/>
+          <path d="M388 165 l9 -3 l-4 9 z"/>
+          <path d="M252 200 l-9 -3 l4 9 z"/>
+        </g>
+        <text x="180" y="60" font-size="18" fill="#e63946" transform="rotate(-4 180 60)">writes + reads</text>
+        <text x="420" y="200" font-size="18" fill="#e63946" transform="rotate(3 420 200)">verified!</text>
+      </g>
+    </svg>
+    <figcaption class="hand">three providers, one brain — proven with 4 processes x 101 writes, zero loss</figcaption>
+  </figure>
+</section>
+
+<!-- TERMINAL -->
+<section class="terminal-sec" id="install">
+  <div class="terminal">
+    <div class="term-bar"><span></span><span></span><span></span></div>
+    <pre id="term" class="term-body"></pre>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section id="why">
+  <p class="kicker">The problem</p>
+  <h2>Memory for agents means infrastructure. For what is basically a notes file.</h2>
+  <div class="cards3">
+    <div class="card sketch-card">
+      <h3>Managed memory</h3>
+      <p>Server or cloud account. API keys. Your agent's memories on someone else's disk. A bill, forever.</p>
+      <p class="hand red">your data leaves the box</p>
+    </div>
+    <div class="card sketch-card">
+      <h3>Vector DBs</h3>
+      <p>Docker, embeddings pipeline, ops work — to remember 10k facts like "user prefers Python".</p>
+      <p class="hand red">overkill for facts</p>
+    </div>
+    <div class="card sketch-card">
+      <h3>Prompt stuffing</h3>
+      <p>Jamming chat history into the prompt until it gets slow, expensive, and breaks at scale.</p>
+      <p class="hand red">dumb + pricey</p>
+    </div>
+  </div>
+</section>
+
+<!-- SOLUTION -->
+<section id="how">
+  <p class="kicker">Our solution</p>
+  <h2>Patch once. Every call remembers.</h2>
+  <div class="split">
+    <div>
+      <pre class="code"><code>from memolite import MemoryStore, patch_openai
+
+store = MemoryStore("agent.db")
+patch_openai(client, store, session="s1")
+# done. every call now auto-recalls + auto-stores.</code><button class="copy" data-copy="patch">copy</button></pre>
+      <pre class="code"><code># system-wide: every Python on this box
+$ memolite autoinstall --db agent.db
+$ MEMOLITE_OFF=1 python app.py  # kill-switch</code><button class="copy" data-copy="auto">copy</button></pre>
+      <pre class="code"><code># LLMs as embedders, one line each
+Config(embedder=openai_embedder(client))
+# or local_embedder() / ollama_embedder() — offline</code><button class="copy" data-copy="emb">copy</button></pre>
+    </div>
+    <div>
+      <ul class="ticks">
+        <li><strong>Shared brain</strong> — GPT writes a fact, Claude recalls it verbatim. Sessions isolate, global is shared.</li>
+        <li><strong>Hardened</strong> — AES-256-GCM at rest, PII redacted pre-write, SHA256 WORM chain + <code>verify</code>, per-session readers/writers, 0600 perms.</li>
+        <li><strong>Hybrid recall</strong> — FTS5 + vector rerank. Bring SOTA embeddings or use the zero-dep baseline.</li>
+        <li><strong>Fleet sync</strong> — <code>memolite sync a.db b.db</code> merges kiosks with last-write-wins.</li>
+        <li><strong>Honest evals</strong> — keyword recall@3 0.6, paraphrase 0.2 with stdlib embed. Harness ships in repo.</li>
+      </ul>
+      <p class="hand">no daemon, no spyware — fail-open, memory errors never break your LLM call</p>
+    </div>
+  </div>
+</section>
+
+<!-- PROOF -->
+<section id="proof">
+  <p class="kicker">Proof, not promises</p>
+  <h2>Every claim is a pytest.</h2>
+  <div class="stats">
+    <div class="stat sketch-card"><span class="num">50k</span><span>memories in 13MB</span></div>
+    <div class="stat sketch-card"><span class="num">1.33ms</span><span>avg recall</span></div>
+    <div class="stat sketch-card"><span class="num">101/101</span><span>concurrent writes, 0 lost</span></div>
+    <div class="stat sketch-card"><span class="num">66</span><span>tests, mypy strict</span></div>
+  </div>
+  <p class="center muted">First WORM chain <em>forked</em> under the 4-process test — fixed with atomic transactions, test kept. The scar is in the git log.</p>
+</section>
+
+<!-- COMPARE -->
+<section>
+  <p class="kicker">Comparison</p>
+  <h2>When to use what.</h2>
+  <div class="table-wrap sketch-card">
+  <table>
+    <tr><th></th><th>memolite</th><th>Managed (Mem0/Letta/Zep)</th><th>Vector DBs</th></tr>
+    <tr><td>Install</td><td>pip, one file</td><td>server/cloud + key</td><td>server/docker</td></tr>
+    <tr><td>Offline</td><td>yes</td><td>no</td><td>no</td></tr>
+    <tr><td>Cross-provider shared</td><td>yes, proven</td><td>per provider</td><td>DIY</td></tr>
+    <tr><td>Audit (WORM/ACL)</td><td>built in</td><td>varies</td><td>no</td></tr>
+    <tr><td>Multi-machine</td><td>file sync</td><td>yes (their cloud)</td><td>yes (ops)</td></tr>
+  </table>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <h2>Give your agents a memory<br>in the next five minutes.</h2>
+  <pre class="code big"><code>pip install memolite
+memolite autoinstall --db agent.db</code><button class="copy" data-copy="install">copy</button></pre>
+  <div class="cta-row">
+    <a class="btn" href="https://github.com/mastaan66/memolite">Star on GitHub</a>
+    <a class="btn ghost" href="https://github.com/mastaan66/memolite#scale---hybrid-vectors-file-sync-evals">Read the evals</a>
+  </div>
+  <p class="hand">built by @mastaan66 — tell me what you'd break first</p>
+</section>
+</main>
+
+<footer>
+  <span>memolite · MIT · <a href="https://github.com/mastaan66/memolite">github.com/mastaan66/memolite</a></span>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>
