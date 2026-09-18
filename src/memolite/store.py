@@ -845,6 +845,20 @@ class MemoryStore:
                     pass
         return counts
 
+    def chat(
+        self,
+        session: str,
+        user_msg: str,
+        llm_fn: Any,
+        system: str = "",
+        limit: int = 5,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        """Fully-auto plug-and-use: recall -> LLM -> store -> extract. No remember() needed."""
+        from memolite.auto import auto_chat
+
+        return auto_chat(self, session, user_msg, llm_fn, system, limit, actor)
+
     def explain_recall(
         self, query: str, session: str | None = None, limit: int = 5
     ) -> dict[str, object]:

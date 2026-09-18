@@ -4,6 +4,7 @@ from memolite.adapters.anthropic import AnthropicAdapter
 from memolite.adapters.generic import GenericAdapter
 from memolite.adapters.openai import DeepSeekAdapter, OpenAIAdapter
 from memolite.async_store import AsyncMemoryStore
+from memolite.auto import auto_chat
 from memolite.config import Config
 from memolite.models import Memory, RecallResult, Session, ToolCall, Turn
 from memolite.security import decrypt_str, encrypt_str, redact_pii
@@ -35,6 +36,7 @@ __all__ = [
     "Session",
     "ToolCall",
     "Turn",
+    "auto_chat",
     "decrypt_str",
     "encrypt_str",
     "plug",

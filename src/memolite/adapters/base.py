@@ -27,6 +27,20 @@ class BaseAdapter:
         """Prompt injection for any LLM - no tools needed. Works with Claude, ChatGPT, DeepSeek, local."""
         return self.store.recall(query, session=session_id, limit=limit).prompt
 
+    def chat(
+        self,
+        session: str,
+        user_msg: str,
+        llm_fn: Any,
+        system: str = "",
+        limit: int = 5,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        """Fully-auto: recall -> LLM -> store -> extract. Plug-and-use, no remember() needed."""
+        from memolite.auto import auto_chat
+
+        return auto_chat(self.store, session, user_msg, llm_fn, system, limit, actor)
+
     def handle(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Generic tool dispatcher for any LLM tool call."""
         if name in {"memolite_remember", "remember", "store_memory"}:

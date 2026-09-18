@@ -50,3 +50,6 @@ class Config:
     encryption_key_env: str = "MEMOLITE_KEY"
     require_acl: bool = False
     worm_enabled: bool = True
+
+    # fully-auto plug-and-use: chat() stores + extracts without remember()
+    auto_capture: bool = True

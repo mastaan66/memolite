@@ -50,7 +50,25 @@ pip install "memolite[security]"       # + AES-256-GCM at-rest encryption
 
 Requires Python 3.10 or later. No system dependencies.
 
-## Quickstart
+## Quickstart - fully auto, just chat()
+
+```python
+from memolite import MemoryStore
+
+store = MemoryStore("agent.db")
+
+def my_llm(messages):  # any provider: OpenAI, Claude, DeepSeek, local Gemma
+    return client.chat(messages)  # return str
+
+# no remember() needed. recall -> LLM -> store -> extract happens inside.
+out = store.chat("s1", "I prefer concise Python with type hints", my_llm)
+print(out["response"])
+out2 = store.chat("s1", "how should I write code?", my_llm)  # recalls above automatically
+```
+
+Manual mode still works (`add_turn`, `remember`, `recall`). Auto uses offline heuristic
+extractor by default; bring your own via `Config(consolidator=my_fn)` or opt out
+with `Config(auto_capture=False)`.
 
 ```python
 from memolite import MemoryStore, Config
