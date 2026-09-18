@@ -17,6 +17,15 @@ from memolite.exceptions import NotFoundError, ValidationError
 from memolite.models import Memory, RecallResult, Session, ToolCall, Turn
 from memolite.schema import SCHEMA_SQL
 from memolite.scoring import composite_score, recency_factor
+from memolite.security import (
+    chain_hash,
+    decrypt_str,
+    encrypt_str,
+    file_perms_ok,
+    harden_file,
+    is_encrypted,
+    redact_pii,
+)
 
 _PRAGMA_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _PRAGMA_VAL_RE = re.compile(r"^[a-zA-Z0-9_\-\+\.]+$")
@@ -53,6 +62,64 @@ class MemoryStore:
             self._conn.execute(f"PRAGMA {k}={v}")
         with self._lock:
             self._conn.executescript(SCHEMA_SQL)
+        if self.path != ":memory:":
+            harden_file(self.path)
+
+    def _enc(self, text: str) -> str:
+        if self.config.require_encryption:
+            return encrypt_str(text, self.config.encryption_key_env)
+        return text
+
+    def _dec(self, token: str) -> str:
+        if is_encrypted(token):
+            return decrypt_str(token, self.config.encryption_key_env)
+        return token
+
+    def _redact(self, text: str) -> str:
+        if self.config.redact_pii:
+            return redact_pii(text)
+        return text
+
+    # ---- ACL ----
+
+    def grant(self, session_id: str, owner: str, readers: list[str] | None = None) -> None:
+        """Set owner + readers for a session. Creates session if missing."""
+        import time as _t
+
+        self.create_session(session_id)
+        readers_json = json.dumps(readers or [])
+        now = int(_t.time())
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO session_acl(session_id, owner, readers_json, created_at)"
+                " VALUES (?,?,?,?)"
+                " ON CONFLICT(session_id) DO UPDATE SET owner=?, readers_json=?",
+                (session_id, owner, readers_json, now, owner, readers_json),
+            )
+
+    def _check_acl(self, session_id: str | None, actor: str | None) -> None:
+        if not self.config.require_acl or not session_id:
+            return
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT owner, readers_json FROM session_acl WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+        if not row:
+            # first writer becomes owner
+            if actor:
+                self.grant(session_id, actor)
+                return
+            raise ValidationError("acl: unknown session, actor required")
+        import json as _j
+
+        readers: list[str] = []
+        try:
+            readers = _j.loads(row["readers_json"] or "[]")
+        except Exception:
+            readers = []
+        if actor is None or (actor != row["owner"] and actor not in readers):
+            raise ValidationError("acl: access denied")
 
     # ---- sessions / turns ----
 
@@ -76,21 +143,42 @@ class MemoryStore:
                 pass  # idempotent
         return Session(id=session_id, meta=meta, created_at=now)
 
-    def add_turn(self, session: str, role: str, content: str, tokens: int | None = None) -> Turn:
+    def add_turn(
+        self,
+        session: str,
+        role: str,
+        content: str,
+        tokens: int | None = None,
+        actor: str | None = None,
+    ) -> Turn:
         if not session or not session.strip() or not role or content is None:
             raise ValidationError("session/role/content required")
         if role not in {"user", "assistant", "system", "tool"}:
             raise ValidationError(f"invalid role {role}")
+        self._check_acl(session, actor)
         self.create_session(session)
         now = int(time.time())
-        toks = tokens if tokens is not None else max(0, len(content) // 4)
+        safe = self._redact(content)
+        stored = self._enc(safe)
+        toks = tokens if tokens is not None else max(0, len(safe) // 4)
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO turns(session_id, role, content, tokens, ts) VALUES (?,?,?,?,?)",
-                (session, role, content, toks, now),
+                (session, role, stored, toks, now),
             )
             turn_id = cur.lastrowid or 0
-        turn = Turn(id=turn_id, session_id=session, role=role, content=content, tokens=toks, ts=now)
+            if self.config.worm_enabled:
+                prev_row = self._conn.execute(
+                    "SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                prev = str(prev_row["hash"]) if prev_row else "GENESIS"
+                h = chain_hash(prev, session, role, safe, now)
+                self._conn.execute(
+                    "INSERT INTO audit_log(session_id, turn_id, prev_hash, hash, ts)"
+                    " VALUES (?,?,?,?,?)",
+                    (session, turn_id, prev, h, now),
+                )
+        turn = Turn(id=turn_id, session_id=session, role=role, content=safe, tokens=toks, ts=now)
         # auto-consolidate based on DB count (persistent, not in-memory)
         if self.config.auto_consolidate_every:
             with self._lock:
@@ -171,6 +259,7 @@ class MemoryStore:
         session_id: str | None = None,
         importance: float = 0.5,
         reward: float = 0.0,
+        actor: str | None = None,
     ) -> Memory:
         if not content or not content.strip():
             raise ValidationError("content empty")
@@ -191,9 +280,13 @@ class MemoryStore:
             raise ValidationError("reward must be finite [0,1]")
         # ensure session exists if provided (FK)
         if session_id:
+            self._check_acl(session_id, actor)
             self.create_session(session_id)
         now = int(time.time())
-        summ = summary or content[:200]
+        safe_content = self._redact(content)
+        safe_summary = self._redact(summary) if summary else safe_content[:200]
+        stored_content = self._enc(safe_content)
+        stored_summary = self._enc(safe_summary)
         sc = composite_score(
             importance_f,
             0,
@@ -210,7 +303,18 @@ class MemoryStore:
             cur = self._conn.execute(
                 """INSERT INTO memories(kind, session_id, content, summary, importance, access_count, reward, score, created_at, last_accessed)
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (kind, session_id, content, summ, importance_f, 0, reward_f, sc, now, now),
+                (
+                    kind,
+                    session_id,
+                    stored_content,
+                    stored_summary,
+                    importance_f,
+                    0,
+                    reward_f,
+                    sc,
+                    now,
+                    now,
+                ),
             )
             mid = cur.lastrowid or 0
             row = self._conn.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
@@ -229,7 +333,13 @@ class MemoryStore:
                     else 16,
                 ),
             ).fetchall()
-        texts = [r["content"] for r in rows][::-1]
+        texts = []
+        for r in rows:
+            try:
+                texts.append(self._dec(r["content"]))
+            except Exception:
+                continue
+        texts = texts[::-1]
         if not texts:
             return []
         if self.config.consolidator:
@@ -281,10 +391,17 @@ class MemoryStore:
         return created
 
     def recall(
-        self, query: str, session: str | None = None, limit: int = 5, stm_limit: int | None = None
+        self,
+        query: str,
+        session: str | None = None,
+        limit: int = 5,
+        stm_limit: int | None = None,
+        actor: str | None = None,
     ) -> RecallResult:
         if limit <= 0:
             raise ValidationError("limit must be >0")
+        if session:
+            self._check_acl(session, actor)
         stm_n = stm_limit if stm_limit is not None else self.config.stm_window
         stm: list[Turn] = []
         if session:
@@ -298,7 +415,7 @@ class MemoryStore:
                     id=r["id"],
                     session_id=r["session_id"],
                     role=r["role"],
-                    content=r["content"],
+                    content=self._dec(r["content"]),
                     tokens=r["tokens"],
                     ts=r["ts"],
                 )
@@ -307,7 +424,30 @@ class MemoryStore:
         memories: list[Memory] = []
         tool_calls: list[ToolCall] = []
 
-        if query and query.strip():
+        if self.config.require_encryption:
+            # ciphertext is unsearchable: fetch by score, decrypt, substring-rank in Python
+            with self._lock:
+                if session:
+                    erows = self._conn.execute(
+                        "SELECT * FROM memories WHERE session_id IS NULL"
+                        " OR session_id = ? ORDER BY score DESC LIMIT ?",
+                        (session, limit * 3),
+                    ).fetchall()
+                else:
+                    erows = self._conn.execute(
+                        "SELECT * FROM memories ORDER BY score DESC LIMIT ?",
+                        (limit * 3,),
+                    ).fetchall()
+            cands = [self._row_to_memory(r) for r in erows]
+            ql = query.strip().lower()
+            ranked = sorted(
+                cands,
+                key=lambda m: (ql in (m.summary + " " + m.content).lower(), m.score),
+                reverse=True,
+            )
+            memories = ranked[:limit]
+
+        if not self.config.require_encryption and query and query.strip():
             # try FTS, fallback to LIKE/score
             try:
                 q = query.replace('"', '""')
@@ -390,8 +530,8 @@ class MemoryStore:
                         rows3 = self._conn.execute(
                             "SELECT * FROM memories ORDER BY score DESC LIMIT ?", (limit,)
                         ).fetchall()
-                memories = [self._row_to_memory(r) for r in rows3]
-        else:
+                    memories = [self._row_to_memory(r) for r in rows3]
+        elif not self.config.require_encryption:
             with self._lock:
                 if session:
                     rows = self._conn.execute(
@@ -523,7 +663,7 @@ class MemoryStore:
     # ---- 5 killer dev-exp extras ----
 
     def health_check(self) -> dict[str, object]:
-        """Deep health: integrity, WAL, FTS, sizes. Zero-dependency."""
+        """Deep health: integrity, WAL, FTS, sizes + hardening. Zero-dependency."""
         with self._lock:
             integ = self._conn.execute("PRAGMA integrity_check").fetchone()[0]
             wal = self._conn.execute("PRAGMA journal_mode").fetchone()[0]
@@ -534,6 +674,18 @@ class MemoryStore:
                 self._conn.execute("SELECT * FROM memories_fts LIMIT 1")
             except sqlite3.OperationalError:
                 fts_ok = False
+            try:
+                audit_count = int(
+                    self._conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+                )
+            except sqlite3.OperationalError:
+                audit_count = 0
+            try:
+                acl_count = int(
+                    self._conn.execute("SELECT COUNT(*) FROM session_acl").fetchone()[0]
+                )
+            except sqlite3.OperationalError:
+                acl_count = 0
             db_size = page_cnt * page_sz if page_cnt and page_sz else 0
             wal_path = self.path + "-wal" if self.path != ":memory:" else ""
             wal_size = 0
@@ -542,6 +694,16 @@ class MemoryStore:
                     wal_size = Path(wal_path).stat().st_size
             except Exception:
                 pass
+            worm_ok: object = True
+            perms = file_perms_ok(self.path)
+        # verify outside inner lock (RLock-safe anyway, but cheaper)
+        if self.config.worm_enabled:
+            try:
+                v = self.verify_chain()
+                worm_ok = v.get("ok", False)
+            except Exception:
+                worm_ok = False
+        with self._lock:
             return {
                 "integrity": integ,
                 "integrity_ok": integ == "ok",
@@ -550,6 +712,14 @@ class MemoryStore:
                 "wal_size_bytes": wal_size,
                 "fts_ok": fts_ok,
                 "stats": self.stats(),
+                "worm_enabled": self.config.worm_enabled,
+                "worm_ok": worm_ok,
+                "audit_count": audit_count,
+                "redact_pii": self.config.redact_pii,
+                "encryption": self.config.require_encryption,
+                "acl": self.config.require_acl,
+                "acl_count": acl_count,
+                "perms_ok": perms,
             }
 
     def vacuum(self) -> None:
@@ -573,6 +743,7 @@ class MemoryStore:
                 self._conn.backup(dst)
             finally:
                 dst.close()
+        harden_file(dest)
 
     def export_json(self, dest: str | Path) -> dict[str, int]:
         """Dump to JSON file. Returns counts. Inspector-friendly."""
@@ -587,9 +758,20 @@ class MemoryStore:
             for row in self._conn.execute("SELECT * FROM sessions").fetchall():
                 data["sessions"].append(dict(row))
             for row in self._conn.execute("SELECT * FROM turns").fetchall():
-                data["turns"].append(dict(row))
+                d = dict(row)
+                try:
+                    d["content"] = self._dec(str(d.get("content", "")))
+                except Exception:
+                    pass
+                data["turns"].append(d)
             for row in self._conn.execute("SELECT * FROM memories").fetchall():
-                data["memories"].append(dict(row))
+                d = dict(row)
+                try:
+                    d["content"] = self._dec(str(d.get("content", "")))
+                    d["summary"] = self._dec(str(d.get("summary", "")))
+                except Exception:
+                    pass
+                data["memories"].append(d)
             for row in self._conn.execute("SELECT * FROM tool_calls").fetchall():
                 data["tool_calls"].append(dict(row))
         # json can't handle bytes for embedding, base64? skip
@@ -699,15 +881,57 @@ class MemoryStore:
 
     # internal
     def _row_to_memory(self, r: sqlite3.Row) -> Memory:
+        try:
+            content = self._dec(r["content"])
+        except Exception:
+            content = "[DECRYPT_FAILED]"
+        try:
+            summary = self._dec(r["summary"])
+        except Exception:
+            summary = "[DECRYPT_FAILED]"
         return Memory(
             id=r["id"],
             kind=r["kind"],
             session_id=r["session_id"],
-            content=r["content"],
-            summary=r["summary"],
+            content=content,
+            summary=summary,
             importance=float(r["importance"]),
             access_count=int(r["access_count"]),
             score=float(r["score"]),
             created_at=int(r["created_at"]),
             last_accessed=int(r["last_accessed"]),
         )
+
+    def verify_chain(self, session_id: str | None = None) -> dict[str, object]:
+        """Verify WORM hash-chain. Returns {ok, count, bad_id}."""
+        with self._lock:
+            if session_id:
+                rows = self._conn.execute(
+                    "SELECT a.id, a.session_id, a.prev_hash, a.hash, a.ts,"
+                    " t.role, t.content FROM audit_log a"
+                    " JOIN turns t ON t.id=a.turn_id"
+                    " WHERE a.session_id=? ORDER BY a.id",
+                    (session_id,),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT a.id, a.session_id, a.prev_hash, a.hash, a.ts,"
+                    " t.role, t.content FROM audit_log a"
+                    " JOIN turns t ON t.id=a.turn_id ORDER BY a.id"
+                ).fetchall()
+            rows = list(rows)
+        prev = "GENESIS"
+        count = 0
+        for r in rows:
+            if str(r["prev_hash"]) != prev:
+                return {"ok": False, "count": count, "bad_id": r["id"]}
+            try:
+                plain = self._dec(str(r["content"]))
+            except Exception:
+                return {"ok": False, "count": count, "bad_id": r["id"]}
+            exp = chain_hash(prev, str(r["session_id"]), str(r["role"]), plain, int(r["ts"]))
+            if exp != str(r["hash"]):
+                return {"ok": False, "count": count, "bad_id": r["id"]}
+            prev = str(r["hash"])
+            count += 1
+        return {"ok": True, "count": count, "bad_id": None}

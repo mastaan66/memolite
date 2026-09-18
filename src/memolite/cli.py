@@ -19,6 +19,17 @@ def _health(args: argparse.Namespace) -> int:
     return 0
 
 
+def _verify(args: argparse.Namespace) -> int:
+    import json
+
+    from memolite import MemoryStore
+
+    store = MemoryStore(args.db)
+    print(json.dumps(store.verify_chain(session_id=args.session), indent=2))
+    store.close()
+    return 0
+
+
 def _skill_install(args: argparse.Namespace) -> int:
     src = Path(__file__).parent.parent.parent / "skills" / "memolite"
     # fallback when installed via pip, skills may be in package data
@@ -154,6 +165,11 @@ def main() -> None:
     h = sub.add_parser("health", help="Health check for agent.db")
     h.add_argument("--db", default="agent.db", help="SQLite path")
     h.set_defaults(func=_health)
+
+    v = sub.add_parser("verify", help="Verify WORM hash-chain")
+    v.add_argument("--db", default="agent.db")
+    v.add_argument("--session", default=None)
+    v.set_defaults(func=_verify)
 
     sk = sub.add_parser("skill", help="Install as skill for LLM CLIs")
     sk_sub = sk.add_subparsers(dest="skill_cmd", required=True)

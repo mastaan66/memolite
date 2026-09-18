@@ -43,3 +43,10 @@ class Config:
 
     # extra pragmas
     extra_pragmas: dict[str, str] = field(default_factory=dict)
+
+    # hardening - all off except WORM/file-perms which are passive
+    redact_pii: bool = False
+    require_encryption: bool = False
+    encryption_key_env: str = "MEMOLITE_KEY"
+    require_acl: bool = False
+    worm_enabled: bool = True

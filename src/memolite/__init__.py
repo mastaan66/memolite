@@ -6,6 +6,7 @@ from memolite.adapters.openai import DeepSeekAdapter, OpenAIAdapter
 from memolite.async_store import AsyncMemoryStore
 from memolite.config import Config
 from memolite.models import Memory, RecallResult, Session, ToolCall, Turn
+from memolite.security import decrypt_str, encrypt_str, redact_pii
 from memolite.store import MemoryStore
 
 
@@ -34,6 +35,9 @@ __all__ = [
     "Session",
     "ToolCall",
     "Turn",
+    "decrypt_str",
+    "encrypt_str",
     "plug",
+    "redact_pii",
 ]
 __version__ = "0.1.0"

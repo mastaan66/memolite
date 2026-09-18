@@ -67,4 +67,23 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
   INSERT INTO memories_fts(memories_fts, rowid, summary, content) VALUES('delete', old.id, old.summary, old.content);
   INSERT INTO memories_fts(rowid, summary, content) VALUES (new.id, new.summary, new.content);
 END;
+
+-- WORM audit chain: one row per turn, hash-linked
+CREATE TABLE IF NOT EXISTS audit_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  turn_id INTEGER NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+  prev_hash TEXT NOT NULL DEFAULT 'GENESIS',
+  hash TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id, id);
+
+-- per-session RBAC: owner + readers JSON list
+CREATE TABLE IF NOT EXISTS session_acl(
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  owner TEXT NOT NULL,
+  readers_json TEXT,
+  created_at INTEGER NOT NULL
+);
 """

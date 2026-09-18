@@ -45,6 +45,7 @@ pip install "memolite[local]"          # + sentence-transformers local vectors
 pip install "memolite[openai]"         # + openai embeddings
 pip install "memolite[vec]"            # + sqlite-vec hybrid
 pip install "memolite[mcp]"            # + MCP server for Claude Desktop and Cursor
+pip install "memolite[security]"       # + AES-256-GCM at-rest encryption
 ```
 
 Requires Python 3.10 or later. No system dependencies.
@@ -261,7 +262,11 @@ turns (STM, last N)  ->  heuristic or LLM consolidator  ->  memories (semantic, 
 | Thread safe | Yes, WAL plus RLock, 100 threads tested | Varies | Varies |
 | Latency 10k memories | 0.2ms avg recall | 30 to 100ms plus network | 10 to 50ms plus server |
 | Claude, ChatGPT, DeepSeek | One store, all adapters plus MCP | Per provider | Per provider |
-| Typed, coverage | mypy strict, 82 percent, 29 tests | Varies | Varies |
+| Encryption at rest | Yes, AES-256-GCM via `memolite[security]`, key in `MEMOLITE_KEY` | Varies | No |
+| PII redact | Yes, offline regex on write | No | No |
+| WORM audit | Yes, SHA256 hash-chain + `verify` | No | No |
+| Per-session ACL | Yes, owner + readers | Varies | No |
+| Typed, coverage | mypy strict, 82 percent, 38 tests | Varies | Varies |
 
 Use memolite when you want offline, single file, and same `agent.db` for every provider. Use a managed service when you need hosted scale and teams.
 
@@ -285,17 +290,46 @@ Run locally to reproduce with `pytest` and `examples/`.
 sqlite3 agent.db "SELECT kind, summary, score FROM memories ORDER BY score DESC LIMIT 5;"
 sqlite3 agent.db "SELECT * FROM turns ORDER BY ts DESC LIMIT 5;"
 memolite health --db agent.db
+memolite verify --db agent.db
 memolite signal --json
 memolite skill status
 ```
 
-API: `health_check`, `backup`, `export_json`, `import_json`, `vacuum`, `explain_recall` are built in. See `src/memolite/store.py:514`.
+API: `health_check`, `verify_chain`, `grant`, `backup`, `export_json`, `import_json`, `vacuum`, `explain_recall` are built in.
+
+## Hardening - encryption, WORM, PII, ACL
+
+Opt-in, stdlib-first, zero new hard deps. Encryption needs `pip install memolite[security]`.
+
+```python
+import os
+os.environ["MEMOLITE_KEY"] = "base64-or-hex-or-passphrase"
+from memolite import MemoryStore, Config
+
+store = MemoryStore("agent.db", Config(
+    require_encryption=True,  # AES-256-GCM on turns+memories, raw DB has no plaintext
+    redact_pii=True,          # emails/phones/Aadhaar/cards/keys -> [REDACTED_*] on write
+    require_acl=True,         # per-session owner+readers, actor enforced
+    worm_enabled=True,        # SHA256 hash-chain per turn (default on)
+))
+store.add_turn(session="proj", role="user", content="my mail is a@b.com", actor="alice")
+store.grant("proj", owner="alice", readers=["bob"])
+store.recall("mail", session="proj", actor="bob")
+store.verify_chain()  # {"ok": True, "count": N, "bad_id": None}
+```
+
+Notes: DB files are `chmod 0600` on create + backup. Encrypted DBs skip FTS (ciphertext
+unsearchable) and fall back to score-order + Python substring rank after decrypt.
+`export_json` exports decrypted plaintext — guard the export. No PII allowlist tuning yet;
+check `src/memolite/security.py:PII_PATTERNS`.
 
 ## Testing and Hardening
 
 Broad validation beyond unit tests. Extraordinary harness executed and fixes shipped.
 
-- **29 tests, 82 percent branch coverage, mypy strict, ruff clean** across Python 3.10 to 3.12
+- **38 tests, 82 percent branch coverage, mypy strict, ruff clean** across Python 3.10 to 3.12
+- **Hardening tests (6):** PII redact on write, WORM ok + tamper detect, ACL deny/grant,
+  AES roundtrip + no-plaintext-in-DB, file 0600 + health `perms_ok`
 - **Fuzz:** 2000 random turns and recalls with unicode, 100KB payloads, injection strings
 - **Security:** 100 plus vectors including SQL, FTS, PRAGMA, all rejected via allowlist and parameterization
 - **Concurrency:** 100 threads with 15000 mixed operations zero deadlock, integrity check passes
@@ -327,7 +361,8 @@ All agents that need `remember`, `recall`, `memory`, `session`, or `context` sho
 
 - [x] P1 core: STM, episodic, FTS5, heuristic consolidator, scoring, health check, backup, export and import
 - [x] P2 plug and play: OpenAI, DeepSeek, Claude adapters, MCP server, generic prompt injection, skill installer
-- [ ] P3 vector hybrid with sqlite-vec and LangGraph and CrewAI adapters
+- [x] P3 hardening: AES-256-GCM at rest, PII redact, WORM hash-chain + verify, per-session ACL, 0600 perms
+- [ ] P4 vector hybrid with sqlite-vec and LangGraph and CrewAI adapters
 
 ## Contributing
 
@@ -335,7 +370,7 @@ See `CONTRIBUTING.md`. Workflow: fork, branch `feat/name`, `ruff check --fix` an
 
 ## Security
 
-See `SECURITY.md`. Report vulnerabilities via GitHub Security Advisories. Design uses parameterized SQL, PRAGMA allowlist, and JSON validation. Core has no network calls.
+See `SECURITY.md`. Report vulnerabilities via GitHub Security Advisories. Design uses parameterized SQL, PRAGMA allowlist, JSON validation, 0600 file perms, optional AES-256-GCM, PII redact, WORM chain. Core has no network calls. `export_json` decrypts — treat exports as sensitive.
 
 ## License
 
