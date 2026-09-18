@@ -16,6 +16,59 @@ Messages = list[dict[str, str]]
 LlmFn = Callable[[Messages], str]
 
 
+def save_facts(
+    store: Any, session: str, user_msg: str, response: str, actor: str | None = None
+) -> list[Any]:
+    """Extract + dedup + remember. Shared by chat() and patch(). Max 3."""
+    cfg = getattr(store, "config", None)
+    if cfg is not None and getattr(cfg, "auto_capture", True) is False:
+        return []
+    extractor = getattr(cfg, "consolidator", None) if cfg is not None else None
+    try:
+        cands = (
+            extractor([user_msg, response])
+            if extractor
+            else heuristic_consolidate([user_msg, response])
+        )
+    except Exception:
+        cands = heuristic_consolidate([user_msg, response])
+    created: list[Any] = []
+    seen: set[str] = set()
+    for c in cands[:3]:
+        content = str(c.get("content", "")).strip()
+        if not content or content.lower() in seen:
+            continue
+        seen.add(content.lower())
+        try:
+            dup = store.recall(content[:80], session=session, limit=2)
+            if any(m.summary.lower() == content.lower() for m in dup.memories):
+                continue
+        except Exception:
+            pass
+        try:
+            kind = str(c.get("kind", "semantic"))
+            if kind not in {"semantic", "procedural", "episodic"}:
+                kind = "semantic"
+            imp_raw = c.get("importance", 0.6)
+            try:
+                imp = float(imp_raw)  # type: ignore[arg-type]
+            except Exception:
+                imp = 0.6
+            imp = max(0.2, min(1.0, imp))
+            m = store.remember(
+                content,
+                summary=str(c.get("summary") or content),
+                kind=kind,
+                session_id=session,
+                importance=imp,
+                actor=actor,
+            )
+            created.append(m)
+        except Exception:
+            continue
+    return created
+
+
 def auto_chat(
     store: Any,
     session: str,
@@ -52,55 +105,7 @@ def auto_chat(
     store.add_turn(session, "user", user_msg, actor=actor)
     store.add_turn(session, "assistant", response, actor=actor)
 
-    # 4. implicit extract (skip if auto_capture off)
-    created: list[Any] = []
-    cfg = getattr(store, "config", None)
-    if cfg is not None and getattr(cfg, "auto_capture", True) is False:
-        return {"response": response, "memories": created, "recall_count": len(res.memories)}
-
-    extractor = getattr(cfg, "consolidator", None) if cfg is not None else None
-    try:
-        cands = (
-            extractor([user_msg, response])
-            if extractor
-            else heuristic_consolidate([user_msg, response])
-        )
-    except Exception:
-        cands = heuristic_consolidate([user_msg, response])
-
-    seen: set[str] = set()
-    for c in cands[:3]:
-        content = str(c.get("content", "")).strip()
-        if not content or content.lower() in seen:
-            continue
-        seen.add(content.lower())
-        # dedup against existing: skip if near-identical summary exists
-        try:
-            dup = store.recall(content[:80], session=session, limit=2)
-            if any(m.summary.lower() == content.lower() for m in dup.memories):
-                continue
-        except Exception:
-            pass
-        try:
-            kind = str(c.get("kind", "semantic"))
-            if kind not in {"semantic", "procedural", "episodic"}:
-                kind = "semantic"
-            imp_raw = c.get("importance", 0.6)
-            try:
-                imp = float(imp_raw)  # type: ignore[arg-type]
-            except Exception:
-                imp = 0.6
-            imp = max(0.2, min(1.0, imp))
-            m = store.remember(
-                content,
-                summary=str(c.get("summary") or content),
-                kind=kind,
-                session_id=session,
-                importance=imp,
-                actor=actor,
-            )
-            created.append(m)
-        except Exception:
-            continue
+    # 4. implicit extract
+    created = save_facts(store, session, user_msg, response, actor)
 
     return {"response": response, "memories": created, "recall_count": len(res.memories)}
